@@ -1,0 +1,44 @@
+#!/bin/bash
+# Review Ops launcher: start | stop | restart | open | status | log, or a registry command (review-ops help).
+set -u
+# The app folder is the parent of this script's folder (symlinks are followed).
+SELF=$0; while [[ -L $SELF ]]; do L=$(readlink "$SELF"); [[ $L = /* ]] && SELF=$L || SELF=$(dirname "$SELF")/$L; done
+APP=$(cd "$(dirname "$SELF")/.." && pwd)
+cfg_port() {
+  python3 - "$APP" <<'PY' 2>/dev/null || echo 8765
+import os, sys, tomllib
+app = sys.argv[1]
+for p in (os.environ.get("REVIEW_OPS_CONFIG"), os.path.join(app, "config.toml"),
+          os.path.expanduser("~/.config/review-ops/config.toml")):
+    if p and os.path.exists(p):
+        print(tomllib.load(open(p, "rb")).get("port", 8765)); break
+else:
+    print(8765)
+PY
+}
+PORT=${REVIEW_OPS_PORT:-$(cfg_port)}
+RUN=$APP/.run; PIDF=$RUN/server.pid; LOG=$RUN/server.log
+URL="http://127.0.0.1:$PORT"
+mkdir -p "$RUN"
+alive() { [[ -f $PIDF ]] && kill -0 "$(cat "$PIDF")" 2>/dev/null; }
+up() { curl -s -m 2 -o /dev/null "$URL/api/health"; }
+start() {
+  if alive; then echo "review-ops is running: $URL"; return 0; fi
+  nohup python3 "$APP/server.py" --port "$PORT" "$@" >>"$LOG" 2>&1 </dev/null &
+  echo $! > "$PIDF"
+  for _ in $(seq 1 30); do up && { echo "review-ops started: $URL"; return 0; }; sleep 0.2; done
+  echo "review-ops did not start; see $LOG" >&2; tail -5 "$LOG" >&2; return 1
+}
+stop() {
+  if alive; then kill "$(cat "$PIDF")"; rm -f "$PIDF"; echo "review-ops stopped"; else rm -f "$PIDF"; echo "review-ops is not running"; fi
+}
+case "${1:-open}" in
+  start) shift; start "$@" ;;
+  stop) stop ;;
+  restart) shift; stop; sleep 0.5; start "$@" ;;
+  open) alive || start || exit 1; open "$URL" ;;
+  status) if alive; then echo "running (pid $(cat "$PIDF")): $URL"; else echo "not running"; exit 1; fi ;;
+  log) tail -n "${2:-40}" "$LOG" ;;
+  -h|--help) echo "usage: review-ops [start [--dry-run]|stop|restart|open|status|log [N]]"; python3 "$APP/cli.py" help ;;
+  *) exec python3 "$APP/cli.py" "$@" ;;
+esac

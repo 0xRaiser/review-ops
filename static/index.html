@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review Ops</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">Review Ops</div>
+  <div id="banner" class="banner" hidden></div>
+  <div class="top-actions">
+    <span id="updated" class="muted small"></span>
+    <button id="btn-new" class="btn">New review</button>
+    <button id="btn-refresh" class="btn btn-primary">Refresh</button>
+  </div>
+</header>
+<div class="layout">
+  <aside class="side">
+    <div class="side-tools">
+      <div class="mode" role="tablist" aria-label="View">
+        <button data-mode="review" class="on" role="tab">Reviewing</button>
+        <button data-mode="mine" role="tab">My PRs</button>
+      </div>
+      <div class="search"><input id="filter" type="search" placeholder="Search PRs" aria-label="Search PRs (press /)" autocomplete="off"><kbd>/</kbd></div>
+      <div class="side-filters">
+        <select id="f-repo" aria-label="Repo"><option value="">All repos</option></select>
+        <select id="f-author" aria-label="Author"><option value="">All authors</option></select>
+        <select id="f-link" aria-label="Linked feature"><option value="">All features</option></select>
+        <button id="f-clear" class="btn btn-sm btn-ghost" type="button" hidden>Clear</button>
+      </div>
+      <div class="seg" role="group" aria-label="Which PRs">
+        <button data-group="mine" class="on" title="PRs you track or that ask for your review">Mine</button>
+        <button data-group="all" title="Also other open PRs">All open</button>
+      </div>
+    </div>
+    <nav id="side-list" aria-label="Pull requests"><p class="muted pad">Loading…</p></nav>
+  </aside>
+  <main id="main" class="main">
+    <div class="empty"><h2>Pick a PR on the left</h2><p class="muted">Data comes from the registry, GitHub (cached for 3 minutes) and the review sessions on this Mac. Nothing here posts to GitHub.</p>
+      <div class="keys"><kbd>/</kbd> search &nbsp; <kbd>j</kbd> <kbd>k</kbd> next / previous PR &nbsp; <kbd>1</kbd>–<kbd>5</kbd> tabs &nbsp; <kbd>r</kbd> refresh this PR</div></div>
+  </main>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog" class="dlg">
+    <h3 id="dlg-title"></h3>
+    <div id="dlg-body"></div>
+    <div class="dlg-actions">
+      <button value="cancel" class="btn">Cancel</button>
+      <button id="dlg-ok" value="ok" class="btn btn-primary"></button>
+    </div>
+  </form>
+</dialog>
+<script src="/static/md.js"></script>
+<script src="/api/config.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

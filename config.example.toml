@@ -1,0 +1,35 @@
+# Review Ops settings. Copy this file to config.toml (same folder) or to
+# ~/.config/review-ops/config.toml, then edit it. Set REVIEW_OPS_CONFIG to use another path.
+
+# Folder that holds your local checkouts of the repos below. Review data goes to
+# <workspace>/pr-reviews unless you set pr_reviews.
+workspace = "~/code/my-org"
+# pr_reviews = "~/code/my-org/pr-reviews"
+
+# GitHub organisation (or user) that owns the repos.
+github_org = "my-org"
+
+# Your GitHub login. Leave it empty to read it from `gh api user`.
+github_user = ""
+
+# PRs by these authors are left out of the lists (bots, infra accounts and so on).
+exclude_authors = []
+
+# Port for the dashboard. It only listens on 127.0.0.1.
+port = 8765
+
+# iTerm2: a Python that has the `iterm2` package (see the README).
+iterm_python = "~/.local/share/it2venv/bin/python"
+# Folder with newtab.py and focus.py. Empty = the tools/ folder of this app.
+iterm_tools = ""
+
+# Optional: a script that runs quality gates on a remote box. Leave it empty to
+# turn off box gates and box status.
+quality_remote = ""
+# Optional: AWS profile named in the "SSO expired" message.
+aws_profile = ""
+
+# GitHub repo name = folder name under the workspace.
+[repos]
+backend = "backend"
+frontend = "frontend"

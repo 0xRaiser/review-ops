@@ -1,0 +1,18 @@
+# Local settings
+config.toml
+
+# Runtime data (PR titles, prompts, logs)
+.cache/
+.run/
+prompts/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local backups
+*.bak*
+bak-*/
+static.bak-*/
+STATUS.md.before-import
+.DS_Store
