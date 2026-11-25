@@ -125,7 +125,13 @@ def cmd_round(reg, a):
     p["rounds"].append(r)
     if a.verdict:
         p["verdict"] = vcode(a.verdict)
-    return f"round {r['n']} recorded for {a.repo} #{p['number']} at {a.head[:8]}"
+    msg = f"round {r['n']} recorded for {a.repo} #{p['number']} at {a.head[:8]}"
+    try:  # feed the report's lessons to the learner (never blocks the round)
+        import learner as L
+        msg += "; " + L.harvest(a.repo, prn, report, a.head)
+    except Exception as e:  # noqa: BLE001
+        msg += f"; lessons not harvested ({e})"
+    return msg
 
 
 def cmd_posted(reg, a):
@@ -207,7 +213,31 @@ def main(argv=None):
     up.add_argument("repo", choices=sorted(R.REPO_DIRS))
     up.add_argument("number", type=int)
     sub.add_parser("links")
+    kp = sub.add_parser("learn", help="curate the reviewer knowledge (see learner.py)")
+    kp.add_argument("--status", action="store_true", help="lesson counts, budgets and open inbox items")
+    kp.add_argument("--harvest", action="store_true", help="read lessons from every recorded report")
+    kp.add_argument("--all", action="store_true", help="curate every file, not only those with new input")
+    kp.add_argument("--file", help="curate one file (area name such as oms, or general)")
+    kp.add_argument("--diff", action="store_true", help="show the waiting proposal")
+    kp.add_argument("--apply", action="store_true", help="make the waiting proposal live")
+    kp.add_argument("--model", help="model for the curator (default: claude's default)")
     a = ap.parse_args(argv)
+    if a.cmd == "learn":
+        import learner as L
+        if a.status:
+            lines = L.status()
+        elif a.harvest:
+            lines = L.harvest_all() or ["nothing new to harvest"]
+        elif a.diff:
+            lines = L.diff(a.file) or ["no proposal"]
+        elif a.apply:
+            lines = L.apply()
+        else:
+            lines = L.learn(only=a.file, all_files=a.all, model=a.model) or \
+                ["nothing to curate (no new input, every file within budget); use --all to force"]
+            lines.append("review it: `review-ops learn --diff`; make it live: `review-ops learn --apply`")
+        print("\n".join(lines))
+        return
     if a.cmd in (None, "help"):
         print(__doc__.strip())
         return

@@ -399,3 +399,11 @@ details.fold > summary .muted { overflow: hidden; text-overflow: ellipsis; white
 .flow-note b { color: var(--fg); font-weight: 600; }
 .flow-act { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; margin-left: auto; }
 .flow-act .btn-primary { padding: 6px 14px; font-size: 14px; }
+
+/* Draft decision reasons (optional; read by the learner) */
+.d-reasons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: var(--s2) 0; }
+.d-reason { font: inherit; font-size: var(--fs-xs); padding: 2px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--panel); color: var(--fg); }
+.d-reason:hover { border-color: var(--border-strong); }
+.d-reason.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.d-rejected .d-reason.on { background: var(--bad); border-color: var(--bad); color: #fff; }

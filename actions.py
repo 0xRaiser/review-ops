@@ -11,6 +11,7 @@ import uuid
 
 import checklist as K
 import config as CFG
+import knowledge as KN
 import collect as C
 import model as M
 import registry as R
@@ -128,7 +129,11 @@ def recheck_prompt(p, s, opts=None):
     steps.append(f"When done, record the round: `review-ops round {p['repo']} {n} --head <sha> --verdict "
                  f"<request_changes|approve_with_nits|approved> --kind recheck --passes {pl}`.")
     lines += ["", "## What to do"] + [f"{i}. {t}" for i, t in enumerate(steps, 1)]
-    return "\n".join(lines) + "\n" + (linked_text(p["repo"], n) if o["linked"] else "")
+    known = ""
+    if o.get("knowledge"):
+        fl = C.gh_pr_files(p["repo"], n)
+        known = KN.section(p["repo"], [f.get("filename", "") for f in (fl.get("files") or [])])
+    return "\n".join(lines) + "\n" + ("\n" + known if known else "") + (linked_text(p["repo"], n) if o["linked"] else "")
 
 
 def _plan(repo, number, kind, opts):
@@ -298,7 +303,13 @@ def brief_from_template(repo, number, opts=None):
     pl = ",".join(K.passes("new", opts))
     extra.append(f"- When done, record the round: `review-ops round {repo} {number} --head <sha> --verdict "
                  f"<request_changes|approve_with_nits|approved> --kind review --passes {pl}`.")
-    brief = (head + _passes_section(passes_tpl, number, opts, v["baseRefName"]) + between + "## Output" + output.rstrip()
+    known = ""
+    if opts.get("knowledge"):
+        # `gh pr view --json files` stops at 100 files; the REST list is complete.
+        full = C.gh_pr_files(repo, number)
+        paths = [f.get("filename", "") for f in (full.get("files") or [])] or [f["path"] for f in v.get("files") or []]
+        known = KN.section(repo, paths)
+    brief = (head + known + _passes_section(passes_tpl, number, opts, v["baseRefName"]) + between + "## Output" + output.rstrip()
              + "\n" + "\n".join(extra) + "\n")
     if opts["linked"]:
         brief += linked_text(repo, number)

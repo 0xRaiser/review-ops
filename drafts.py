@@ -15,6 +15,13 @@ import model as M
 import registry as R
 
 DECISIONS = ("approved", "rejected", "pending")
+# Optional reasons for a decision (one click in the Drafts tab). The learner reads them.
+REASONS = {
+    "rejected": {"not_real": "Not a real issue", "preexisting": "Pre-existing, not made worse", "too_minor": "Too minor",
+                 "wrong_severity": "Wrong severity", "duplicate": "Already raised", "out_of_scope": "Out of scope",
+                 "not_proven": "Not proven", "tone": "Tone or wording"},
+    "approved": {"important": "Important catch", "good_proof": "Good proof", "would_miss": "Would have missed it"},
+}
 VERDICTS = ("request_changes", "approve_with_nits", "approve", "comment")
 SEVERITIES = ("blocker", "major", "minor", "nit", "security")
 MAX_TEXT = 65000
@@ -113,6 +120,7 @@ def load(repo, number):
         x["decision"] = dd.get("decision", "pending")
         x["edited_body"] = dd.get("body")
         x["note"] = dd.get("note", "")
+        x["reasons"] = [r for r in dd.get("reasons") or [] if r in REASONS.get(x["decision"], {})]
         f = files.get(it.get("path") or "")
         x["context"] = _hunk((f or {}).get("patch"), it.get("line"))
         th = threads.get(str(it.get("in_reply_to"))) if it.get("in_reply_to") else None
@@ -132,7 +140,7 @@ def load(repo, number):
         "verdict": dec.get("verdict") or d.get("verdict"), "verdict_drafted": d.get("verdict"),
         "summary": dec.get("summary") if dec.get("summary") is not None else d.get("summary", ""),
         "summary_drafted": d.get("summary", ""), "items": items, "counts": counts(dec, items),
-        "decided_at": dec.get("decided_at"),
+        "decided_at": dec.get("decided_at"), "reasons": REASONS,
     }
 
 
@@ -158,6 +166,9 @@ def save(repo, number, payload):
             row["body"] = body[:MAX_TEXT]
         if x.get("note"):
             row["note"] = str(x["note"])[:2000]
+        rs = [r for r in x.get("reasons") or [] if r in REASONS.get(dec, {})]
+        if rs:
+            row["reasons"] = rs
         out_items.append(row)
     data = {"head": d.get("head", ""), "verdict": verdict, "summary": summary, "items": out_items,
             "decided_at": R.now_iso()}

@@ -126,6 +126,26 @@ Verdicts: request_changes, approve_with_nits, approved, not_reviewed, on_hold, i
   passes when --passes is not given and moves the options onto the round. Gates and Timeline
   tabs show the round's passes ("Ran: ...").
 
+## Knowledge (lessons from past reviews, 2026-11-24)
+- knowledge.py: <pr_reviews>/knowledge/general.md (always) + <repo>/<area>.md whose front matter
+  `paths: [prefix, ...]` matches a changed file (no paths line = every PR of the repo). Section
+  "## Known risks in this area" capped at MAX_CHARS. New briefs put it before "## Passes";
+  recheck prompts add it at the end (files from collect.gh_pr_files). Checklist option
+  `knowledge` (group "Knowledge", default on, pass name "knowledge"). Sessions add a **Lessons**
+  section to the report and never edit the knowledge files.
+- learner.py (2026-11-25): reports end with a ```lessons block (hit/miss/wrong <id>, new <area> | text |
+  evidence). cli `round` calls L.harvest() -> knowledge/inbox.jsonl + stats.json (once per report+head;
+  harvested.json). Old reports: the free "## Lessons" text is kept as a raw item, routed to the areas
+  the PR matches. `review-ops learn [--all|--file X]` runs `claude -p --tools ""` per file, JSON out,
+  renders groups with ids "(area-NN)", budget 20 per area / 15 general (one retry if over), proposals
+  in knowledge/.proposed/ + plan.json; --diff; --apply copies in place (.bak), appends archived to
+  <area>.archive.md (skipped by knowledge.select), folds stats of merged ids, marks inbox items done.
+- Draft reasons (2026-11-25): drafts.REASONS (rejected: not_real, preexisting, too_minor, wrong_severity,
+  duplicate, out_of_scope, not_proven, tone; approved: important, good_proof, would_miss). decisions.json
+  items carry `reasons`; the Drafts card shows chips after Approve/Reject (reasonRow; a new decision clears
+  them). learner.harvest_decisions() (run by `learn` and `learn --harvest`) adds rejected, edited, tagged
+  or noted drafts as kind "decision" items, routed to the matching areas + general.
+
 ## Drafts (approve each planned comment before posting)
 - Contract (brief template, "Drafts for the user to approve"): the session writes
   pr-reviews/<repo>/<PR>/<date>-post/drafts.json {pr, head, verdict, summary, items[{id, kind

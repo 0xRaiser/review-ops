@@ -45,6 +45,10 @@ GROUPS = [
     {"key": "links", "label": "Linked PRs", "items": [
         {"key": "linked", "label": "Check that linked PRs agree", "type": "bool", "default": False, "pass": "linked-prs"},
     ]},
+    {"key": "knowledge", "label": "Knowledge", "items": [
+        {"key": "knowledge", "label": "Add lessons from past reviews for the changed areas", "type": "bool",
+         "default": True, "pass": "knowledge"},
+    ]},
 ]
 KINDS = ("new", "rereview")
 DB_RX = re.compile(r"(^|/)migrations?/|\.sql$|(^|/)db/|(^|/)store/|repository|sqlx", re.I)

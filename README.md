@@ -20,6 +20,7 @@ in its own tab.
   and the local report.
 - **My PRs:** review threads waiting for you, CI checks, and sessions that work on your PRs.
 - **Linked PRs:** group PRs that make one feature across repos.
+- **Knowledge:** lessons from past reviews are added to each new brief and recheck, for the areas the PR changes.
 
 ## Requirements
 
@@ -66,6 +67,7 @@ All settings are in `config.toml`. See `config.example.toml` for every key.
 | `port` | Dashboard port. Default 8765. |
 | `iterm_python`, `iterm_tools` | The Python with `iterm2`, and the helper scripts folder. |
 | `quality_remote`, `aws_profile` | Optional remote quality gates. Leave empty to turn them off. |
+| `knowledge_dir` | Lessons from past reviews. Default: `<pr_reviews>/knowledge`. |
 
 The config is read from `$REVIEW_OPS_CONFIG`, then `config.toml` in the app folder, then
 `~/.config/review-ops/config.toml`.
@@ -79,6 +81,7 @@ pr-reviews/
   registry.json            # the source of truth (PRs, rounds, sessions, links)
   STATUS.md                # generated from registry.json
   brief-template.md        # optional: your own brief template
+  knowledge/               # lessons from past reviews (see below)
   <repo>/<PR>/
     brief.md               # what the review session was asked to do
     <date>-review.md       # the session's report
@@ -90,6 +93,48 @@ pr-reviews/
 headings, because the app builds the passes from them: `## Passes`, the steps `1.`, `2.`,
 `3.`, `3b.`, and `## Output`. Placeholders: `<org>`, `<repo>`, `<PR>`, `<title>`, `<author>`,
 `<head>`, `<base>`, `<size>`, `<crates>`, `<today>`, `<PR-specific focus>`.
+
+## Knowledge (lessons from past reviews)
+
+Each new brief and recheck prompt gets a **"Known risks in this area"** section. It is built from:
+
+- `knowledge/general.md`: always added (how you want reviews done).
+- `knowledge/<repo>/<area>.md`: added when the PR changes a path listed in the file's front matter:
+
+```
+---
+paths: [crates/oms/, crates/common/src/orderbook.rs]
+---
+OMS
+- Weaker row locks: check every other path that locks the row still excludes the writer. [backend #1310 M1, proven]
+```
+
+Write one lesson per line, with evidence in brackets (PR, finding id, proven or wrong). Mark
+noise with `Avoid:`. Keep each file short; the whole section is capped at about 20k characters.
+Turn it off per review with the **Knowledge** option in the checklist.
+
+### The learner (keeps the lists short)
+
+Each report ends with a `lessons` block: `hit <id>`, `miss <id>`, `wrong <id>` and `new <area> | text |
+evidence`. `review-ops round` reads it into `knowledge/inbox.jsonl` and updates `knowledge/stats.json`.
+
+```bash
+review-ops learn --status     # lessons per file, budget, new input
+review-ops learn              # curate files with new input (one claude -p pass per file)
+review-ops learn --all        # curate every file
+review-ops learn --diff       # read the proposal
+review-ops learn --apply      # make it live (old file kept as .bak)
+review-ops learn --harvest    # read lessons from every recorded report again
+```
+
+The curator merges duplicates into general patterns, keeps at most 20 lessons per area and 15 in
+`general.md`, prefers lessons with real hits, and moves the rest to `<area>.archive.md` (not added
+to briefs). It never edits live files: you check the diff first.
+
+**Your draft decisions teach it too.** In the Drafts tab, after Approve or Reject, you can tick
+reasons (for example *Pre-existing, not made worse*, *Too minor*, *Important catch*) and add a note.
+Rejected, edited, and tagged drafts go to the inbox; repeated reasons become "Avoid:" lessons, and
+your edits teach comment style.
 
 ## Commands
 
@@ -128,6 +173,7 @@ review-ops posted <repo> <N>
 | `checklist.py` | Options for new reviews and re-reviews. |
 | `cli.py` | The `review-ops` registry commands. |
 | `config.py` | Reads `config.toml`. |
+| `knowledge.py` | Picks the lessons that fit a PR. |
 | `static/` | The web page (plain HTML, CSS and JS; no build step). |
 | `tools/` | iTerm2 helpers: `newtab.py`, `focus.py`. |
 | `HANDOFF.md` | Design notes for Claude sessions that work on this code. |

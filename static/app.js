@@ -993,7 +993,18 @@
       '<div class="md d-body">' + MD.render(body || "") + "</div>" +
       '<div class="d-edit" hidden><textarea rows="8">' + esc(body || "") + '</textarea><div class="muted small">Preview</div><div class="md d-prev">' + MD.render(body || "") + "</div>" +
       '<div class="actions"><button class="btn btn-sm" data-edit-done>Done</button><button class="btn btn-sm" data-edit-undo>Undo my edit</button></div></div>' +
-      '<input class="d-note" placeholder="Note for the session (optional)" value="' + esc(it.note || "") + '"></div></div>';
+      reasonRow(it) +
+      '<input class="d-note" placeholder="Reason or context (optional; the session and the learner read it)" value="' + esc(it.note || "") + '"></div></div>';
+  }
+  // One-click reasons for a decision. They help the learner (see learner.py); all optional.
+  function reasonRow(it) {
+    var R = (state.drafts.reasons || {})[it.decision];
+    if (!R) return "";
+    var on = it.reasons || [];
+    return '<div class="d-reasons"><span class="muted small">' + (it.decision === "rejected" ? "Why reject?" : "Why approve?") + "</span>" +
+      Object.keys(R).map(function (k) {
+        return '<button class="d-reason' + (on.indexOf(k) >= 0 ? " on" : "") + '" data-reason="' + esc(k) + '" aria-pressed="' + (on.indexOf(k) >= 0) + '">' + esc(R[k]) + "</button>";
+      }).join("") + "</div>";
   }
   var saveTimer = null;
   function saveDrafts(now) {
@@ -1002,7 +1013,7 @@
       var D = state.drafts, s = state.detail.summary, sv = $("#d-saved");
       if (sv) sv.textContent = "Saving…";
       api("/api/drafts/save", { repo: s.repo, number: s.number, verdict: D.verdict, summary: D.summary,
-        items: D.items.map(function (it) { return { id: it.id, decision: it.decision, body: it.edited_body != null ? it.edited_body : it.body, note: it.note || "" }; }) })
+        items: D.items.map(function (it) { return { id: it.id, decision: it.decision, body: it.edited_body != null ? it.edited_body : it.body, note: it.note || "", reasons: it.reasons || [] }; }) })
         .then(function (r) {
           var sv2 = $("#d-saved");
           if (r.ok) { D.decided_at = r.decided_at; if (sv2) sv2.textContent = "Saved"; loadList(); }
@@ -1013,7 +1024,7 @@
   }
   function itemOf(el) { var id = el.closest(".d-card").dataset.id; return state.drafts.items.filter(function (x) { return x.id === id; })[0]; }
   document.addEventListener("click", function (ev) {
-    var t = ev.target.closest("[data-dec],[data-edit],[data-edit-done],[data-edit-undo],[data-bulk],[data-send-drafts],[data-copy-text]");
+    var t = ev.target.closest("[data-dec],[data-reason],[data-edit],[data-edit-done],[data-edit-undo],[data-bulk],[data-send-drafts],[data-copy-text]");
     if (!t) return;
     ev.preventDefault();
     if (t.dataset.copyText) {
@@ -1035,7 +1046,12 @@
       drawDrafts(); saveDrafts(true); return;
     }
     var it = itemOf(t), card = t.closest(".d-card");
-    if (t.dataset.dec) { it.decision = it.decision === t.dataset.dec ? "pending" : t.dataset.dec; drawDrafts(); saveDrafts(true); return; }
+    if (t.dataset.dec) { it.decision = it.decision === t.dataset.dec ? "pending" : t.dataset.dec; it.reasons = []; drawDrafts(); saveDrafts(true); return; }
+    if (t.dataset.reason) {
+      var rs = it.reasons || [], k = t.dataset.reason, i = rs.indexOf(k);
+      if (i >= 0) rs.splice(i, 1); else rs.push(k);
+      it.reasons = rs; drawDrafts(); saveDrafts(true); return;
+    }
     if (t.hasAttribute("data-edit")) { card.querySelector(".d-edit").hidden = false; card.querySelector(".d-body").hidden = true; card.querySelector("textarea").focus(); return; }
     if (t.hasAttribute("data-edit-done")) { drawDrafts(); return; }
     if (t.hasAttribute("data-edit-undo")) { it.edited_body = null; drawDrafts(); saveDrafts(true); }

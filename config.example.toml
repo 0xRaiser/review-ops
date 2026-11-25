@@ -29,6 +29,9 @@ quality_remote = ""
 # Optional: AWS profile named in the "SSO expired" message.
 aws_profile = ""
 
+# Optional: folder with lessons from past reviews. Empty = <pr_reviews>/knowledge.
+# knowledge_dir = ""
+
 # GitHub repo name = folder name under the workspace.
 [repos]
 backend = "backend"

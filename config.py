@@ -45,6 +45,9 @@ PORT = int(_c.get("port", 8765))
 QUALITY_REMOTE = _path(_c.get("quality_remote", ""))
 AWS_PROFILE = _c.get("aws_profile", "")
 
+# Lessons from past reviews. Empty = <pr_reviews>/knowledge.
+KNOWLEDGE_DIR = _path(_c.get("knowledge_dir", ""))
+
 # iTerm2: a Python that has the `iterm2` package, and the two helper scripts.
 ITERM_PYTHON = _path(_c.get("iterm_python", "~/.local/share/it2venv/bin/python"))
 TOOLS = _path(_c.get("iterm_tools", "")) or os.path.join(HERE, "tools")
