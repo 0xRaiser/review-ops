@@ -104,6 +104,10 @@ class H(BaseHTTPRequestHandler):
             m = re.match(r"^/api/openprs/([\w-]+)$", u.path)
             if m and m.group(1) in R.REPO_DIRS:
                 return self._send(200, M.open_prs(m.group(1)))
+            mt = re.match(r"^/api/triage/([\w-]+)/(\d+)$", u.path)
+            if mt and mt.group(1) in R.REPO_DIRS:
+                import triage as TR
+                return self._send(200, TR.load(mt.group(1), int(mt.group(2))))
             m = re.match(r"^/api/drafts/([\w-]+)/(\d+)$", u.path)
             if m and m.group(1) in R.REPO_DIRS:
                 return self._send(200, D.load(m.group(1), int(m.group(2))))
@@ -192,6 +196,11 @@ class H(BaseHTTPRequestHandler):
                                                  a_opts, sid=a_sid, dry_run=dry, copied=bool(body.get("copied"))))
             if u == "/api/drafts/save":
                 return self._send(200, D.save(repo, number, body))
+            if u == "/api/triage/save":
+                import triage as TR
+                return self._send(200, TR.save(repo, number, body))
+            if u == "/api/action/send_triage":
+                return self._send(200, A.send_triage(repo, number, dry_run=dry, copied=bool(body.get("copied"))))
             if u == "/api/drafts/ask":
                 return self._send(200, D.ask(repo, number, str(body.get("kind") or ""), str(body.get("id") or ""),
                                              str(body.get("text") or "")))

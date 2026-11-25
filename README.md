@@ -115,6 +115,22 @@ Map claims cite `file:line`; "missing" claims say how they were searched. Each d
 The Drafts tab shows the walkthrough with exceptions first. `review-ops learn --steps` shows which
 steps find approved or proven issues.
 
+## Comments on your own PRs (triage, then fix)
+
+Reviewers, AI or human, can be wrong, and an eager fixer can over-fix. **Address comments** (My PRs →
+Overview) runs in two phases when **Triage first** is ticked:
+
+1. **Triage:** the work session proves or disproves each comment (probe, run or `file:line`), picks a
+   verdict (valid proven, valid unproven, handled, misread, out of scope, style, conflict, duplicate),
+   judges the suggested fix on its own (good, partial, overengineered, wrong), plans the smallest change,
+   and writes `<date>-triage/triage.json` with a plain-language note per comment. No code changes.
+2. **You decide** in the **Triage** tab: Fix · Decline · Follow-up · Ask me, with an optional note.
+3. **Fix:** "Send decisions" gives the session a prompt to fix only the Fix items, smallest change,
+   test first, scope-check the fix diff, run the gates, and draft evidence-based replies (Drafts tab).
+   Nothing is pushed or posted until you confirm in the session.
+
+`review-ops learn --reviewers` shows each reviewer's hit rate (valid vs misread), bots included.
+
 ## Knowledge (lessons from past reviews)
 
 Each new brief and recheck prompt gets a **"Known risks in this area"** section. It is built from:

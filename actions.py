@@ -620,6 +620,34 @@ def _work_session(repo, number, sid=""):
     return (ss[0] if ss else None), ss
 
 
+def send_triage(repo, number, dry_run=False, copied=False):
+    """Phase 2 of triage: the fix prompt from the user's decisions, for my PR's work session."""
+    import address as AD
+    import triage as TR
+    best, ss = _work_session(repo, number)
+    cwd = next((s["cwd"] for s in ([best] if best else []) + ss if s.get("cwd") and os.path.isdir(s["cwd"])), R.repo_dir(repo))
+    pr = C.gh_pr(repo, number)
+    text, err = TR.phase2_prompt(repo, number, cwd, pr.get("baseRefName") or "dev", pr.get("headRefName") or "?", today())
+    if err:
+        return {"ok": False, "error": err}
+    if copied:
+        TR.mark_sent(repo, number, "copied")
+        return {"ok": True, "recorded": True}
+    live = C.live_sessions().get(best["session"]) if best else None
+    base = {"prompt": text, "session": (best or {}).get("session", ""), "folder": cwd}
+    if live:
+        return dict(base, ok=False, session_open=True, tty=live.get("tty", ""))
+    if not best:
+        return dict(base, ok=False, error="No work session found for this PR. Copy the prompt into one.")
+    ppath = _write_prompt(repo, number, text, dry_run)
+    cmd = f"cd {shlex.quote(cwd)} && claude --resume {best['session']} \"$(cat {shlex.quote(ppath)})\""
+    res = _open_tab(cmd, dry_run)
+    res.update(base, how="resumed")
+    if res.get("ok"):
+        TR.mark_sent(repo, number, "resumed", res.get("tty", ""))
+    return res
+
+
 def address(repo, number, thread_ids, check_ids, opts, sid="", dry_run=False, copied=False):
     """Send my PR's work session the chosen comments (resume it, start one, or hand over the prompt)."""
     import address as AD

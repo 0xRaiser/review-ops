@@ -10,6 +10,7 @@ import model as M
 import registry as R
 
 OPTIONS = [
+    {"key": "triage", "label": "Triage first: prove each comment and let me decide in Review Ops before any fix (two phases)", "default": True},
     {"key": "validate", "label": "Validate each comment first (agree / partly / disagree, with evidence from the code)", "default": True},
     {"key": "fix_tdd", "label": "Fix the agreed ones, test first", "default": True},
     {"key": "gates", "label": "Run the code-discipline gates on the box after the fixes (quality-remote --tool all, both mutation engines; --db when DB code changed)", "default": True},
@@ -127,6 +128,14 @@ def prompt(repo, number, thread_ids, check_ids, opts, folder=""):
     if checks:
         L += ["", "## Failing CI checks", *[f"- {c['name']}" for c in checks],
               f"  (`gh pr checks {number} -R {R.ORG}/{repo}` and the job logs)"]
+    if o.get("triage"):
+        import triage as TR
+        tpath = f"../pr-reviews/{repo}/{number}/{today}-triage/triage.json"
+        if checks and o["ci"]:
+            L += ["", "Also note the failing CI checks above in the triage (as items with reviewer \"ci\"); do not fix them yet."]
+        L += ["", TR.PHASE1_TEXT.format(triage_path=tpath, number=number),
+              "Add no AI attribution anywhere. Do not push, post, resolve threads or re-request review."]
+        return "\n".join(L) + "\n", picked, checks
     L += ["", "## How"]
     steps = ["Read each comment in full on GitHub (and the code it points at) before you change anything."]
     if o["validate"]:

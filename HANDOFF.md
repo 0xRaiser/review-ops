@@ -154,6 +154,14 @@ Verdicts: request_changes, approve_with_nits, approved, not_reviewed, on_hold, i
   risky, glossary). Drafts tab: walkthroughHtml shows flagged rows, folds the rest; explainHtml; Ask about this
   (/api/drafts/ask -> prompt copied, tab focused, question logged for the learner). `learn --steps` = step_report().
 
+## Triage of comments on my PRs (2026-11-25)
+- triage.py: PHASE1_TEXT (added to address.prompt when option `triage`, default on), load/save
+  (<date>-triage/triage.json + triage-decisions.json), phase2_prompt (fix only "fix" items, smallest change,
+  test first, scope-check the fix diff, gates, replies in drafts.json with step "triage"), mark_sent.
+  actions.send_triage (resume work session or hand over the prompt). Routes: GET /api/triage/<repo>/<n>,
+  POST /api/triage/save, /api/action/send_triage. UI: My PRs → Triage tab (wireTriage/drawTriage).
+  learner.harvest_triage -> knowledge/reviewers.json + inbox kind "triage"; `learn --reviewers`.
+
 ## Drafts (approve each planned comment before posting)
 - Contract (brief template, "Drafts for the user to approve"): the session writes
   pr-reviews/<repo>/<PR>/<date>-post/drafts.json {pr, head, verdict, summary, items[{id, kind

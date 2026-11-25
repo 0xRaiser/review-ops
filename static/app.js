@@ -425,7 +425,7 @@
         (la.checks && la.checks.length ? ", " + la.checks.length + " CI check" + (la.checks.length === 1 ? "" : "s") : "") + ", " + esc(la.how) + (la.tty ? " in " + esc(la.tty) : "") + ").</div>";
     }
     var dc = s.drafts;
-    h += tabsHtml([["conversation", "Overview"], ["drafts", "Drafts", dc ? dc.pending + " pending" : null, dc && dc.pending],
+    h += tabsHtml([["conversation", "Overview"], ["triage", "Triage"], ["drafts", "Drafts", dc ? dc.pending + " pending" : null, dc && dc.pending],
       ["comments", "Comments", d.reviews.reduce(function (a, r) { return a + r.threads.length; }, 0)], ["timeline", "Timeline"]]);
     h += '<div id="tab-body"></div>';
     $("#main").innerHTML = h;
@@ -609,11 +609,102 @@
 
   function renderTab() {
     var d = state.detail, el = $("#tab-body");
-    var fn = { conversation: d.mine ? tabMyOverview : tabOverview, drafts: tabDrafts, timeline: tabTimeline, comments: tabComments, report: tabReport }[state.tab] || (d.mine ? tabMyOverview : tabOverview);
+    var fn = { conversation: d.mine ? tabMyOverview : tabOverview, triage: tabTriage, drafts: tabDrafts, timeline: tabTimeline, comments: tabComments, report: tabReport }[state.tab] || (d.mine ? tabMyOverview : tabOverview);
     el.innerHTML = fn(d);
     if (state.tab === "report") wireReport();
     if (state.tab === "drafts") wireDrafts();
+    if (state.tab === "triage") wireTriage();
   }
+
+  // ---------------- Triage (my PRs): prove each review comment, then decide, then fix (see triage.py)
+  function tabTriage() { return '<div id="triage"><p class="muted"><span class="spin"></span> Loading triage…</p></div>'; }
+  var T_ACT = [["fix", "Fix", "btn-primary"], ["decline", "Decline", "d-rej"], ["followup", "Follow-up", ""], ["ask", "Ask me", ""]];
+  var V_CLS = { valid_proven: "red", valid_unproven: "amber", handled: "green", misread: "green", out_of_scope: "", style: "", conflict: "amber", duplicate: "" };
+  var FJ_CLS = { good: "green", partial: "amber", overengineered: "amber", wrong: "red", none: "" };
+  function wireTriage() {
+    var s = state.detail.summary, el = $("#triage");
+    api("/api/triage/" + s.repo + "/" + s.number).then(function (T) {
+      if (!T.exists) {
+        el.innerHTML = '<div class="d-title"><h2>Triage of review comments</h2></div><div class="note">No triage yet. On the Overview tab, use <b>Address comments</b> with ' +
+          "<b>Triage first</b> ticked. The work session will prove each comment and write a triage file; nothing in the code changes until you decide here.</div>";
+        return;
+      }
+      if (T.error) { el.innerHTML = '<div class="err">' + esc(T.error) + "</div>"; return; }
+      state.triage = T; drawTriage();
+    }).catch(function (e) { el.innerHTML = '<div class="err">' + esc(e.message) + "</div>"; });
+  }
+  function drawTriage() {
+    var T = state.triage, el = $("#triage"), c = { fix: 0, decline: 0, followup: 0, ask: 0, pending: 0 };
+    T.items.forEach(function (x) { c[x.action] = (c[x.action] || 0) + 1; });
+    var ss = T.session || {};
+    var h = '<div class="d-title"><h2>Triage of review comments</h2><span class="muted small">The work session checked each comment. Decide each one; only "Fix" items change code.</span></div>';
+    if (T.head_moved) h += '<div class="err">⚠ The PR head moved since the triage (' + esc(T.head) + " → " + esc(T.head_now) + "). Re-run the triage if the new commits touch these lines.</div>";
+    h += '<div class="box"><div class="box-h"><b>Decisions</b> ' + chip(c.pending + " pending", c.pending ? "amber" : "") + chip(c.fix + " fix", "blue") + chip(c.decline + " decline", "") +
+      chip(c.followup + " follow-up", "") + chip(c.ask + " ask", "") + '<span class="muted small" id="t-saved" style="margin-left:auto">' + (T.decided_at ? "Saved " + ago(T.decided_at) : "Not saved yet") + "</span></div>" +
+      '<div class="box-b"><div class="actions"><button class="btn btn-primary" data-t-send' + (c.pending ? " disabled" : "") + ">" +
+      (c.pending ? "Decide the " + c.pending + " pending first" : (ss.open ? "Copy fix prompt and go to " + esc(ss.tty) : "Send decisions to the work session")) + "</button>" +
+      (T.sent ? '<span class="muted small">Sent ' + ago(T.sent.at) + "</span>" : "") +
+      '</div><p class="muted small">Nothing is pushed or posted from here. The session fixes only the "Fix" items, test first, drafts replies (Drafts tab), and waits for your OK.</p></div></div>';
+    h += T.items.map(function (x) {
+      var X = x.explain || {};
+      var rows = [["does", "What this code does"], ["claim", "What the reviewer says"], ["truth", "Is it true?"], ["impact", "Why it matters"], ["decide", "Recommendation"]]
+        .filter(function (r) { return X[r[0]]; }).map(function (r) { return "<dt>" + r[1] + '</dt><dd class="md">' + MD.render(String(X[r[0]])) + "</dd>"; }).join("");
+      return '<div class="box d-card d-' + (x.action === "pending" ? "pending" : x.action === "decline" ? "rejected" : "approved") + '" data-tid="' + esc(x.id) + '"><div class="box-h">' +
+        '<b class="mono">' + esc(x.id) + "</b>" + chip(esc(x.reviewer || "?") + (x.bot ? " · bot" : ""), x.bot ? "amber" : "") +
+        chip(esc((T.verdicts || {})[x.verdict] || x.verdict || "?"), V_CLS[x.verdict] || "") + (x.proof ? chip(esc(x.proof), x.proof === "proven" ? "green" : "") : "") +
+        (x.fix_judgement ? chip("suggested fix: " + esc((T.fix_judgement || {})[x.fix_judgement] || x.fix_judgement), FJ_CLS[x.fix_judgement] || "") : "") +
+        (x.path ? '<span class="path">' + esc(x.path) + (x.line ? ":" + esc(x.line) : "") + "</span>" : "") +
+        '<span style="margin-left:auto"></span>' + (x.recommend ? chip("recommends: " + esc(x.recommend), "") : "") +
+        T_ACT.map(function (a) { return '<button class="btn btn-sm' + (x.action === a[0] ? " " + (a[2] || "btn-primary") : "") + '" data-t-act="' + a[0] + '">' + a[1] + "</button>"; }).join("") +
+        '</div><div class="box-b">' + (rows ? '<div class="d-explain"><div class="d-explain-h"><b>In plain words</b></div><dl>' + rows + "</dl></div>" : "") +
+        '<div class="muted small d-lbl">The comment</div><blockquote class="md">' + MD.render(x.comment || "") + "</blockquote>" +
+        (x.evidence ? '<div class="muted small d-lbl">Evidence</div><div class="md">' + MD.render(x.evidence) + "</div>" : "") +
+        (x.plan ? '<div class="muted small d-lbl">Plan</div><div class="md">' + MD.render(x.plan) + "</div>" : "") +
+        (x.conflicts_with && x.conflicts_with.length ? '<p class="small">⚠ Conflicts with ' + x.conflicts_with.map(esc).join(", ") + "</p>" : "") +
+        '<input class="t-note" placeholder="Note for the session (optional; the learner reads it)" value="' + esc(x.note || "") + '"></div></div>';
+    }).join("");
+    el.innerHTML = h;
+  }
+  var tSaveTimer = null;
+  function saveTriage(now) {
+    clearTimeout(tSaveTimer);
+    var go = function () {
+      var s = state.detail.summary, T = state.triage;
+      api("/api/triage/save", { repo: s.repo, number: s.number, items: T.items.map(function (x) { return { id: x.id, action: x.action, note: x.note || "" }; }) })
+        .then(function (r) { var sv = $("#t-saved"); if (sv) sv.textContent = r.ok ? "Saved" : "Not saved: " + r.error; if (r.ok) T.decided_at = r.decided_at; });
+    };
+    if (now) go(); else tSaveTimer = setTimeout(go, 500);
+  }
+  document.addEventListener("click", function (ev) {
+    var t = ev.target.closest("[data-t-act],[data-t-send]");
+    if (!t || !state.triage) return;
+    ev.preventDefault();
+    var s = state.detail.summary;
+    if (t.hasAttribute("data-t-send")) {
+      api("/api/action/send_triage", { repo: s.repo, number: s.number }).then(function (r) {
+        if (r.ok) return info("Sent", "<p>The work session was resumed in <b>" + esc(r.tty || "a new tab") + "</b> with the fix prompt.</p>");
+        if (r.session_open) {
+          var go = function () { api("/api/action/send_triage", { repo: s.repo, number: s.number, copied: true }); api("/api/action/focus", { repo: s.repo, number: s.number }); };
+          var shown = '<p class="small">Paste this in the work session (<b>' + esc(r.tty) + "</b>). It was copied.</p>" + '<pre class="mono small" id="copy-src" style="white-space:pre-wrap">' + esc(r.prompt) + "</pre>" +
+            '<div class="actions"><button class="btn btn-sm" data-copy-text>Copy again</button> <span id="copied" class="muted small"></span></div>';
+          if (navigator.clipboard) navigator.clipboard.writeText(r.prompt).then(function () { go(); info("Fix prompt copied", shown); }, function () { info("Copy the fix prompt", shown); });
+          else info("Copy the fix prompt", shown);
+          return;
+        }
+        info("Not sent", '<div class="err">' + esc(r.error || "failed") + "</div>" + (r.prompt ? '<pre class="mono small" style="white-space:pre-wrap">' + esc(r.prompt) + "</pre>" : ""));
+      });
+      return;
+    }
+    var id = t.closest("[data-tid]").dataset.tid, x = state.triage.items.filter(function (i) { return i.id === id; })[0];
+    x.action = x.action === t.dataset.tAct ? "pending" : t.dataset.tAct;
+    drawTriage(); saveTriage(true);
+  });
+  document.addEventListener("input", function (ev) {
+    if (!state.triage || !ev.target.classList.contains("t-note")) return;
+    var id = ev.target.closest("[data-tid]").dataset.tid;
+    state.triage.items.filter(function (i) { return i.id === id; })[0].note = ev.target.value;
+    saveTriage();
+  });
 
   // The PR body from GitHub, folded (GitHub has the full view).
   function descBox(d) {

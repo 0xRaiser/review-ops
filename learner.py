@@ -225,9 +225,69 @@ def log_question(repo, number, rel, item_id, kind, text, item):
         _write_inbox(inbox + [dict(q, at=R.now_iso(), done=False)])
 
 
+def harvest_triage():
+    """Triage of comments on my PRs: per-reviewer hit rates (knowledge/reviewers.json) and inbox items for
+    comments that were misread or proven, so the curator learns where reviewers (bots too) go wrong."""
+    rev = {}
+    inbox = _inbox()
+    have = {it["key"] for it in inbox}
+    added = 0
+    for tpath in sorted(glob.glob(os.path.join(R.PR_REVIEWS, "*", "*", "*-triage", "triage.json"))):
+        rel = os.path.relpath(tpath, R.PR_REVIEWS)
+        repo, num = rel.split(os.sep)[:2]
+        t = _load_json(tpath, {})
+        dec = {x.get("id"): x for x in _load_json(os.path.join(os.path.dirname(tpath), "triage-decisions.json"), {}).get("items") or []}
+        for it in t.get("items") or []:
+            if not isinstance(it, dict):
+                continue
+            who = (it.get("reviewer") or "?") + (" (bot)" if it.get("bot") else "")
+            v = it.get("verdict") or "?"
+            r = rev.setdefault(who, {"comments": 0})
+            r["comments"] += 1
+            r[v] = r.get(v, 0) + 1
+            act = (dec.get(it.get("id")) or {}).get("action")
+            if act in ("fix", "decline", "followup", "ask"):
+                r["user_" + act] = r.get("user_" + act, 0) + 1
+            if v in ("valid_proven", "misread", "handled") or act == "decline":
+                item = {"kind": "triage", "repo": repo, "pr": int(num) if num.isdigit() else num,
+                        "ref": f"{rel}#{it.get('id')}", "reviewer": who, "verdict": v, "user_action": act,
+                        "note": (dec.get(it.get("id")) or {}).get("note", ""), "path": it.get("path"),
+                        "comment": (it.get("comment") or "")[:500], "evidence": (it.get("evidence") or "")[:400],
+                        "fix_judgement": it.get("fix_judgement")}
+                if it.get("path"):
+                    item["areas"] = sorted({area_of(x) for x, _ in KN.select(repo, [it["path"]])} | {"general"})
+                else:
+                    item["areas"] = ["general"]
+                item["key"] = "tri-" + hashlib.sha1(json.dumps(item, sort_keys=True).encode()).hexdigest()[:12]
+                if item["key"] not in have:
+                    inbox.append(dict(item, at=R.now_iso(), done=False))
+                    have.add(item["key"])
+                    added += 1
+    os.makedirs(kdir(), exist_ok=True)
+    _save_json(kdir("reviewers.json"), rev)
+    if added:
+        _write_inbox(inbox)
+    return added
+
+
+def reviewer_report():
+    rev = _load_json(kdir("reviewers.json"), {})
+    if not rev:
+        return ["no triage data yet"]
+    out = [f"{'reviewer':28} {'comments':>8} {'valid':>6} {'misread':>8} {'handled':>8} {'you fixed':>9} {'you declined':>12}"]
+    for who, r in sorted(rev.items(), key=lambda kv: -kv[1]["comments"]):
+        valid = r.get("valid_proven", 0) + r.get("valid_unproven", 0)
+        out.append(f"{who[:28]:28} {r['comments']:8} {valid:6} {r.get('misread', 0):8} {r.get('handled', 0):8} "
+                   f"{r.get('user_fix', 0):9} {r.get('user_decline', 0):12}")
+    return out
+
+
 def harvest_all():
     """Harvest every round's report in the registry and every decisions file (safe to run again)."""
     out = []
+    t = harvest_triage()
+    if t:
+        out.append(f"triage: {t} new item(s)")
     n = harvest_decisions()
     if n:
         out.append(f"draft decisions: {n} new or changed")
@@ -253,7 +313,7 @@ def _items_for(rel, inbox):
             out.append(it)
         elif it["kind"] == "wrong" and it.get("id", "").startswith(area + "-"):
             out.append(it)
-        elif it["kind"] in ("raw", "decision", "question") and (area in it.get("areas", []) or area == "general"):
+        elif it["kind"] in ("raw", "decision", "question", "triage") and (area in it.get("areas", []) or area == "general"):
             out.append(it)
     return out
 
@@ -312,6 +372,10 @@ How to use "decision" items (the user's approve/reject of drafted PR comments, w
 - Improvement and right-size findings the user approves, or that authors adopt, show which simplifications are
   worth raising in an area. Ones rejected as churn or as overengineering ("Not a real issue", "Too minor") become
   short "Avoid:" lessons. The user dislikes overengineering as much as duplication.
+- "triage" items come from review comments on the user's own PRs, checked by the work session: "misread" or
+  "handled" comments show what reviewers (often bots) get wrong in an area; "valid_proven" ones show real risks
+  that the user's own code had, which make good area lessons for future reviews of others too. Write reviewer-
+  specific lessons only as "comments from <bot> about X are often misread; check them against Y".
 - One decision alone is weak evidence; prefer patterns seen in two or more PRs, unless the user's note says it is a rule.
 
 New input from recent reviews (new lessons, wrong marks, raw "Lessons" sections and draft decisions):
@@ -349,6 +413,7 @@ def count(data):
 
 def learn(only=None, all_files=False, model=None):
     """Write proposals to knowledge/.proposed/. Returns lines to print."""
+    harvest_triage()
     harvest_decisions()
     inbox = _inbox()
     stats = _load_json(kdir("stats.json"), {})

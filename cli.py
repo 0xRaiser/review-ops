@@ -221,6 +221,7 @@ def main(argv=None):
     kp.add_argument("--diff", action="store_true", help="show the waiting proposal")
     kp.add_argument("--apply", action="store_true", help="make the waiting proposal live")
     kp.add_argument("--model", help="model for the curator (default: claude's default)")
+    kp.add_argument("--reviewers", action="store_true", help="hit rate of each reviewer on my PRs (from triage)")
     kp.add_argument("--steps", action="store_true", help="which review step found each finding, and what you did with it")
     a = ap.parse_args(argv)
     if a.cmd == "learn":
@@ -229,6 +230,9 @@ def main(argv=None):
             lines = L.status()
         elif a.steps:
             lines = L.step_report()
+        elif a.reviewers:
+            L.harvest_triage()
+            lines = L.reviewer_report()
         elif a.harvest:
             lines = L.harvest_all() or ["nothing new to harvest"]
         elif a.diff:
