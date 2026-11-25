@@ -221,11 +221,14 @@ def main(argv=None):
     kp.add_argument("--diff", action="store_true", help="show the waiting proposal")
     kp.add_argument("--apply", action="store_true", help="make the waiting proposal live")
     kp.add_argument("--model", help="model for the curator (default: claude's default)")
+    kp.add_argument("--steps", action="store_true", help="which review step found each finding, and what you did with it")
     a = ap.parse_args(argv)
     if a.cmd == "learn":
         import learner as L
         if a.status:
             lines = L.status()
+        elif a.steps:
+            lines = L.step_report()
         elif a.harvest:
             lines = L.harvest_all() or ["nothing new to harvest"]
         elif a.diff:

@@ -11,6 +11,7 @@ import uuid
 
 import checklist as K
 import config as CFG
+import drafts as D
 import knowledge as KN
 import collect as C
 import model as M
@@ -116,7 +117,10 @@ def recheck_prompt(p, s, opts=None):
                  + (", the author's replies checked against the code" if o["round1"] else "")
                  + f" and the gate results. Put gate files in `{today()}-gates/recheck{k - 1}/`.")
     if o["drafts"]:
-        steps.append("Draft a reply for each thread that needs one. Show the drafts first.")
+        steps.append("Draft a reply for each thread that needs one, and write every planned comment to "
+                     f"`../pr-reviews/{p['repo']}/{n}/<date>-post/drafts.json` (same format as round 1). Give every item "
+                     "an `explain` block and the file a `walkthrough`, as described under \"Explain each draft\" below. "
+                     "Show the drafts first.")
     if o["post"]:
         steps.append("**Post only after the user confirms in this session.** Show the draft first.")
     else:
@@ -128,12 +132,16 @@ def recheck_prompt(p, s, opts=None):
     pl = ",".join(K.passes("rereview", o))
     steps.append(f"When done, record the round: `review-ops round {p['repo']} {n} --head <sha> --verdict "
                  f"<request_changes|approve_with_nits|approved> --kind recheck --passes {pl}`.")
+    steps.insert(1, "Update the PR map (Step 0 below) for the new commits: scope of each newly changed file, flow, "
+                    "new components and whether an existing one could be reused, and triggers. Do this before the "
+                    "logic passes.")
     lines += ["", "## What to do"] + [f"{i}. {t}" for i, t in enumerate(steps, 1)]
     known = ""
     if o.get("knowledge"):
         fl = C.gh_pr_files(p["repo"], n)
         known = KN.section(p["repo"], [f.get("filename", "") for f in (fl.get("files") or [])])
-    return "\n".join(lines) + "\n" + ("\n" + known if known else "") + (linked_text(p["repo"], n) if o["linked"] else "")
+    return ("\n".join(lines) + "\n" + "\n" + D.map_text(o.get("depth") or "standard") + ("\n" + D.EXPLAIN_TEXT if o["drafts"] else "") + ("\n" + known if known else "")
+            + (linked_text(p["repo"], n) if o["linked"] else ""))
 
 
 def _plan(repo, number, kind, opts):
@@ -309,7 +317,12 @@ def brief_from_template(repo, number, opts=None):
         full = C.gh_pr_files(repo, number)
         paths = [f.get("filename", "") for f in (full.get("files") or [])] or [f["path"] for f in v.get("files") or []]
         known = KN.section(repo, paths)
-    brief = (head + known + _passes_section(passes_tpl, number, opts, v["baseRefName"]) + between + "## Output" + output.rstrip()
+    if "drafts.json" in between and "## Explain each draft" not in between:
+        between = between.rstrip() + "\n\n" + D.EXPLAIN_TEXT + "\n"
+    depth = opts.get("depth") or "standard"
+    head = re.sub(r"^## Review depth.*?(?=^## |\Z)", f"## Review depth\nSet in the checklist: **{depth}**. The map below "
+                  "lists the steps for this depth. Do the passes listed under Passes.\n\n", head, flags=re.S | re.M)
+    brief = (head + known + D.map_text(depth) + "\n" + _passes_section(passes_tpl, number, opts, v["baseRefName"]) + between + "## Output" + output.rstrip()
              + "\n" + "\n".join(extra) + "\n")
     if opts["linked"]:
         brief += linked_text(repo, number)

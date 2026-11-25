@@ -146,6 +146,14 @@ Verdicts: request_changes, approve_with_nits, approved, not_reviewed, on_hold, i
   them). learner.harvest_decisions() (run by `learn` and `learn --harvest`) adds rejected, edited, tagged
   or noted drafts as kind "decision" items, routed to the matching areas + general.
 
+## Review method (2026-11-25, the user's own order)
+- drafts.map_text(depth): MAP_STEPS scope/flow/reuse/triggers/tests/rollout/right_size/practice, DEPTH_STEPS per
+  light/standard/full; checklist option `depth` (default standard). Briefs replace the template's "Review depth"
+  section and add the map before Passes; rechecks add it after the steps. EXPLAIN_TEXT: per-item `explain` + `step`,
+  top-level `walkthrough` (summary, flow, scope, new_components, triggers, tests, rollout, improvements, practices,
+  risky, glossary). Drafts tab: walkthroughHtml shows flagged rows, folds the rest; explainHtml; Ask about this
+  (/api/drafts/ask -> prompt copied, tab focused, question logged for the learner). `learn --steps` = step_report().
+
 ## Drafts (approve each planned comment before posting)
 - Contract (brief template, "Drafts for the user to approve"): the session writes
   pr-reviews/<repo>/<PR>/<date>-post/drafts.json {pr, head, verdict, summary, items[{id, kind

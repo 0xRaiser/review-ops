@@ -184,7 +184,8 @@ def harvest_decisions():
                     "decision": x.get("decision"),
                     "reasons": [D.REASONS.get(x.get("decision"), {}).get(r, r) for r in x.get("reasons") or []],
                     "note": x.get("note", ""), "severity": d.get("severity"), "proof": d.get("proof"),
-                    "finding": d.get("finding"), "path": d.get("path"), "draft": (d.get("body") or "")[:700]}
+                    "finding": d.get("finding"), "path": d.get("path"), "draft": (d.get("body") or "")[:700],
+                    "explain": d.get("explain"), "step": d.get("step")}
             if edited:
                 item["edited_to"] = (x.get("body") or "")[:700]
             if areas is None:
@@ -205,6 +206,23 @@ def harvest_decisions():
     if changed:
         _write_inbox(inbox)
     return changed
+
+
+def log_question(repo, number, rel, item_id, kind, text, item):
+    """The user asked about a draft: a sign the draft or its explanation was not clear enough."""
+    if kind != "question" or not text.strip():
+        return
+    inbox = _inbox()
+    areas = ["general"]
+    if item and item.get("path"):
+        areas = sorted({area_of(r) for r, _ in KN.select(repo, [item["path"]])} | {"general"})
+    q = {"kind": "question", "repo": repo, "pr": number, "ref": f"{rel}#{item_id}", "question": text.strip()[:1000],
+         "severity": (item or {}).get("severity"), "path": (item or {}).get("path"),
+         "draft": ((item or {}).get("body") or "")[:500], "explain": (item or {}).get("explain"), "areas": areas}
+    q["key"] = "q-" + hashlib.sha1(json.dumps(q, sort_keys=True).encode()).hexdigest()[:12]
+    if not any(x.get("key") == q["key"] for x in inbox):
+        os.makedirs(kdir(), exist_ok=True)
+        _write_inbox(inbox + [dict(q, at=R.now_iso(), done=False)])
 
 
 def harvest_all():
@@ -235,7 +253,7 @@ def _items_for(rel, inbox):
             out.append(it)
         elif it["kind"] == "wrong" and it.get("id", "").startswith(area + "-"):
             out.append(it)
-        elif it["kind"] in ("raw", "decision") and (area in it.get("areas", []) or area == "general"):
+        elif it["kind"] in ("raw", "decision", "question") and (area in it.get("areas", []) or area == "general"):
             out.append(it)
     return out
 
@@ -282,6 +300,18 @@ How to use "decision" items (the user's approve/reject of drafted PR comments, w
 - "Important catch" / "Would have missed it" approvals are hits: keep or add the lesson behind that finding.
 - "Wrong severity" tunes how findings in this area should be graded.
 - An edit (draft vs edited_to) shows the user's preferred wording, length and tone: style lessons go to general.md.
+- A decision's "explain" holds the reviewer's own plain-language case (impact, why_severity, confidence). Compare it
+  with the user's decision: a reject of a draft whose impact says "nothing bad can happen" is a severity or noise
+  lesson; an approve of a draft whose why_severity was weak tells how this area should be graded.
+- "question" items are questions the user had to ask about a draft. Repeated kinds of questions mean drafts or their
+  explanations miss something (for example "what would a user see?"): add a general.md lesson on what every
+  explanation must answer. A question about one area's concept can become an area lesson or a glossary line.
+- When a finding sits in a file the map marked "surprising" or "unrelated", or in a new component that could
+  have reused an existing one, that is a strong area lesson: name the pattern (for example "venue PRs often touch
+  shared barrier code") so later reviews look there first.
+- Improvement and right-size findings the user approves, or that authors adopt, show which simplifications are
+  worth raising in an area. Ones rejected as churn or as overengineering ("Not a real issue", "Too minor") become
+  short "Avoid:" lessons. The user dislikes overengineering as much as duplication.
 - One decision alone is weak evidence; prefer patterns seen in two or more PRs, unless the user's note says it is a rule.
 
 New input from recent reviews (new lessons, wrong marks, raw "Lessons" sections and draft decisions):
@@ -414,6 +444,32 @@ def apply():
             it["done"] = True
     _write_inbox(inbox)
     shutil.rmtree(prop, ignore_errors=True)
+    return out
+
+
+def step_report():
+    """Which review step found each drafted finding, and what the user did with it (all drafts so far)."""
+    rows = {}
+    for dpath in sorted(glob.glob(os.path.join(R.PR_REVIEWS, "*", "*", "*-post", "drafts.json"))):
+        d = _load_json(dpath, {})
+        dec = {x.get("id"): x for x in _load_json(os.path.join(os.path.dirname(dpath), "decisions.json"), {}).get("items") or []}
+        for it in d.get("items") or []:
+            if not isinstance(it, dict) or it.get("kind") == "reply":
+                continue
+            st = it.get("step") or "(untagged)"
+            r = rows.setdefault(st, {"found": 0, "approved": 0, "rejected": 0, "proven": 0, "major+": 0})
+            r["found"] += 1
+            x = dec.get(it.get("id")) or {}
+            if x.get("decision") in ("approved", "rejected"):
+                r[x["decision"]] += 1
+            if it.get("proof") == "proven":
+                r["proven"] += 1
+            if it.get("severity") in ("blocker", "major", "security"):
+                r["major+"] += 1
+    out = [f"{'step':14} {'found':>5} {'major+':>6} {'proven':>6} {'approved':>8} {'rejected':>8}"]
+    for st, r in sorted(rows.items(), key=lambda kv: -kv[1]["found"]):
+        out.append(f"{st:14} {r['found']:5} {r['major+']:6} {r['proven']:6} {r['approved']:8} {r['rejected']:8}")
+    out.append("Steps that find little that is approved or proven, over many reviews, can be shrunk or dropped.")
     return out
 
 

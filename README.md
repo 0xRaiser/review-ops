@@ -94,6 +94,27 @@ headings, because the app builds the passes from them: `## Passes`, the steps `1
 `3.`, `3b.`, and `## Output`. Placeholders: `<org>`, `<repo>`, `<PR>`, `<title>`, `<author>`,
 `<head>`, `<base>`, `<size>`, `<crates>`, `<today>`, `<PR-specific focus>`.
 
+## How a review runs
+
+Every brief and recheck follows the same order (`drafts.map_text`), scaled by the **Depth** option:
+
+| Step | light | standard | full |
+|---|---|---|---|
+| Scope: should the feature touch each file? (intent from the linked ticket) | ✓ | ✓ | ✓ |
+| Flow across folders |  | ✓ | ✓ |
+| New components: could an existing one be reused? |  | ✓ | ✓ |
+| Triggers: what starts each new logic |  | ✓ | ✓ |
+| Tests as the spec |  | ✓ | ✓ |
+| Rollout and ops | ✓ | ✓ | ✓ |
+| Logic passes (code review, pr-reviewer, security, ...) | ✓ | ✓ | ✓ |
+| Right-sized? (overengineering and duplication) |  |  | ✓ |
+| Industry practice, judged on fit |  |  | ✓ |
+
+Map claims cite `file:line`; "missing" claims say how they were searched. Each draft carries the
+`step` that found it, a plain-language `explain` block for you, and the PR gets a `walkthrough`.
+The Drafts tab shows the walkthrough with exceptions first. `review-ops learn --steps` shows which
+steps find approved or proven issues.
+
 ## Knowledge (lessons from past reviews)
 
 Each new brief and recheck prompt gets a **"Known risks in this area"** section. It is built from:

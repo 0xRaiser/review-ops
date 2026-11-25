@@ -11,6 +11,9 @@ import registry as R
 
 GROUPS = [
     {"key": "passes", "label": "Review passes", "items": [
+        {"key": "depth", "label": "Depth (how much of the map: light = scope + rollout, standard = + flow, reuse, "
+                                  "triggers, tests, full = + right-sized and practice)", "type": "select",
+         "default": "standard", "choices": ["light", "standard", "full"]},
         {"key": "code_review", "label": "/code-review", "type": "bool", "default": True, "pass": "code-review"},
         {"key": "pr_reviewer", "label": "In-depth pr-reviewer review with repo skills", "type": "bool", "default": True,
          "pass": "pr-reviewer"},

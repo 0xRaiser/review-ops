@@ -15,6 +15,112 @@ import model as M
 import registry as R
 
 DECISIONS = ("approved", "rejected", "pending")
+# Step 0 of every review: map the PR the way the user reviews by hand, before any logic pass.
+# Which steps run depends on the review depth (light / standard / full).
+MAP_STEPS = {
+    "scope": """**Scope.** Find the intent first. If the PR body, its links or the branch name point to a Linear ticket, read
+   the ticket (Linear tools or the link): it says what the feature needs; an AI-written PR body only says what the
+   code does. Then mark every changed file **expected** (the feature needs it), **surprising** (may be fine; say
+   why it is touched) or **unrelated** (not part of this feature). Read surprising and unrelated files first.""",
+    "flow": """**Flow.** Connect the changed parts across folders and crates: which part calls which, what data moves
+   between them, in what order. Short steps.""",
+    "reuse": """**New components and reuse.** For every new module, struct, trait, client, helper, table, queue/subject,
+   job or config section: search for an existing one that does the same or a close job. Say whether it could be
+   used or extended (**yes / partly / no**) and why. A new component next to an existing one needs a reason
+   (different contract, performance, isolation, a planned replacement); with no reason it is a finding.""",
+    "triggers": """**Triggers.** For each new or changed piece of logic: what starts it (HTTP route, NATS subject, timer,
+   startup, config flag, another call) and the path that reaches it. Flag logic that nothing triggers (dead code)
+   and triggers that can fire twice or out of order.""",
+    "tests": """**Tests as the spec.** Do the tests state the intended behaviour (from the ticket and the domain), or do
+   they only repeat what the code does? Look for tests that pass by design (asserting the code's own output,
+   mocking the thing under test, counting rows instead of checking states), missing failure and edge cases, and
+   behaviour the ticket asks for that no test covers. Mark each important test **spec**, **mirror** or **missing**.""",
+    "rollout": """**Rollout and ops.** Deploy order across services and repos, migrations against live tables, feature
+   flags and their defaults in stage and prod, config and secrets that must exist first, backward compatibility of
+   messages and APIs during the rollout, rollback path, and the metrics, logs or alerts that show it works. A
+   correct change shipped in the wrong order is still a bug.""",
+    "right_size": """**Right-sized? (after the logic passes).** Judge the design both ways:
+   - **Overengineered:** an abstraction, trait, generic layer or config option with one user or none; a
+     framework for a case that does not exist yet; caching or concurrency with no measured need; indirection
+     that makes the flow harder to follow. Simpler code that does the same job is the fix, and it is a finding.
+   - **Under-built:** duplication, special cases piled up, unclear boundaries, code the PR leaves unused.
+   Then list **what could be better**: at most 5 changes that keep maintenance low while staying efficient and
+   easy to understand, ranked by value for cost. Prefer removing and simplifying over adding. Each: what, where,
+   why, effort (small / medium / large) and when (**this PR** only if small and it prevents bugs or drift;
+   otherwise **follow-up**). Never suggest an abstraction for one caller, renames, style, or a rewrite with no
+   clear payoff. Suggestions, not blockers, unless one prevents a bug.""",
+    "practice": """**Industry practice, judged on fit.** Only where it matters (money, auth, data, deploy). Where the PR
+   solves a known problem, name the common practice and one line on why it exists (for example idempotency keys
+   and an outbox for money actions, backoff with jitter, expand-and-contract migrations, the venue's official
+   signing scheme). If the PR departs from it, look for the reason; a good reason (our scale, latency, a venue
+   quirk, simpler for this team, a known flaw in the usual way) makes it fine. No reason, and the usual way is
+   safer or simpler here: a finding. Never push a practice that adds cost with no gain for this code base.""",
+}
+DEPTH_STEPS = {
+    "light": ["scope", "rollout"],
+    "standard": ["scope", "flow", "reuse", "triggers", "tests", "rollout"],
+    "full": ["scope", "flow", "reuse", "triggers", "tests", "rollout", "right_size", "practice"],
+}
+STEP_KEYS = {"scope": "scope", "flow": "flow", "reuse": "new_components", "triggers": "triggers", "tests": "tests",
+             "rollout": "rollout", "right_size": "improvements", "practice": "practices"}
+
+
+def map_text(depth="full"):
+    steps = DEPTH_STEPS.get(depth, DEPTH_STEPS["full"])
+    before = [k for k in steps if k not in ("right_size", "practice")]
+    after = [k for k in steps if k in ("right_size", "practice")]
+    lines = [f"## Step 0: map the PR first (depth: {depth})",
+             "Review in this order, the way the user does by hand. Finish the map before the logic passes, and use it in them."]
+    n = 0
+    for k in before:
+        n += 1
+        lines.append(f"{n}. {MAP_STEPS[k]}")
+    lines.append(f"{n + 1}. **Logic:** the passes below.")
+    n += 1
+    for k in after:
+        n += 1
+        lines.append(f"{n}. {MAP_STEPS[k]}")
+    keys = ", ".join(f"`{STEP_KEYS[k]}`" for k in steps)
+    lines += ["",
+              "**Evidence:** every map claim cites `file:line` at the PR head. A claim that something is missing (\"nothing "
+              "triggers this\", \"no existing component\", \"no test covers it\") also says how you searched (the grep or "
+              "the call sites you read). If you could not check a claim, say so; do not guess.",
+              f"**Tag each finding** with the step that found it: `step` in each drafts item, one of "
+              f"{', '.join(steps + ['logic'])}. The learner uses this to see which steps pay off.",
+              f"Then the comments, then the probes. Put the map in the drafts `walkthrough` ({keys}) and in the report "
+              "under **Map**. Steps not listed here are skipped at this depth; say so in one line."]
+    return "\n".join(lines) + "\n"
+
+
+MAP_TEXT = map_text("full")
+
+# Plain-language notes for the user, written by the review session into drafts.json and never posted.
+EXPLAIN_TEXT = """## Explain each draft for the user (in drafts.json; never posted)
+The user decides on each draft without reading the code. Write for them the way a senior engineer explains an
+issue to a junior: plain words, short sentences, no jargon without a one-line meaning.
+- Each item also has `"step"`: the review step that found it (scope, flow, reuse, triggers, tests, rollout,
+  right_size, practice or logic).
+- Add `"explain"` to every item: `{"does": "what this code does, in one or two sentences", "breaks": "what goes
+  wrong, as a concrete story (who does what, what happens)", "impact": "real-world effect: money, users, data,
+  ops; say if nothing bad can happen", "why_severity": "why this severity and not one higher or lower",
+  "confidence": "how sure we are and how we know (probe, read, assumption)", "decide": "what the user is
+  deciding, and a one-line recommendation"}`.
+- Add a top-level `"walkthrough"`: `{"summary": "what the PR adds or changes, 3-5 sentences", "flow": "how data or
+  control moves through the new code, as short steps", "scope": [{"path": "file or folder", "verdict":
+  "expected|surprising|unrelated", "why": "..."}], "new_components": [{"name": "...", "path": "...", "similar":
+  "existing component or none", "reuse": "yes|partly|no", "why": "..."}], "triggers": [{"what": "logic", "path":
+  "...", "trigger": "route / subject / timer / startup / flag / call", "how": "path that reaches it"}], "improvements": [{"what": "...", "where": "...", "why": "cost it saves",
+  "kind": "simplify|remove|dedupe|clarify|other", "effort": "small|medium|large", "when": "this PR|follow-up"}],
+  "tests": [{"test": "name or area", "verdict": "spec|mirror|missing", "why": "..."}], "rollout": [{"item": "deploy order /
+  migration / flag / config / compat / rollback / monitoring", "status": "ok|risk|missing", "why": "..."}],
+  "practices": [{"problem": "...", "practice": "the common way, and why it exists", "pr": "follows|departs",
+  "reason": "the PR's reason, or none found", "verdict": "fine|finding|practice does not fit here"}], "risky":
+  [{"path": "file or area", "why": "..."}], "glossary": [{"term": "...", "meaning": "..."}]}`. Group files by
+  folder in `scope` when there are many; list every surprising or unrelated file on its own. Keep it short: a map
+  before the details.
+- The item `body` stays written for the PR author. Never post `explain` or `walkthrough`.
+"""
+
 # Optional reasons for a decision (one click in the Drafts tab). The learner reads them.
 REASONS = {
     "rejected": {"not_real": "Not a real issue", "preexisting": "Pre-existing, not made worse", "too_minor": "Too minor",
@@ -140,7 +246,7 @@ def load(repo, number):
         "verdict": dec.get("verdict") or d.get("verdict"), "verdict_drafted": d.get("verdict"),
         "summary": dec.get("summary") if dec.get("summary") is not None else d.get("summary", ""),
         "summary_drafted": d.get("summary", ""), "items": items, "counts": counts(dec, items),
-        "decided_at": dec.get("decided_at"), "reasons": REASONS,
+        "decided_at": dec.get("decided_at"), "reasons": REASONS, "walkthrough": d.get("walkthrough"),
     }
 
 
@@ -306,3 +412,37 @@ def ask_prompt(repo, number):
             '[{"id", "kind": "inline|reply|summary", "finding", "severity": "blocker|major|minor|nit|security", '
             '"proof": "proven|not proven|not testable", "path", "line", "in_reply_to", "body"}]}. '
             "Then stop and tell me. I approve, reject or edit each item in Review Ops. Do not post anything yet.\n")
+
+
+def ask(repo, number, kind, item_id, text):
+    """A question for the review session about the drafts (copied by the dashboard; nothing runs here).
+    kind "question": about one draft; kind "explain_all": add the plain-language notes to every draft.
+    Questions are also logged for the learner: they show where drafts were hard to judge."""
+    p = drafts_path(repo, number)
+    if not p:
+        return {"ok": False, "error": "No drafts file"}
+    rel = os.path.relpath(p, R.WUP)
+    d = _read(p) or {}
+    it = next((x for x in d.get("items") or [] if isinstance(x, dict) and x.get("id") == item_id), None)
+    if kind == "question":
+        if not it or not text.strip():
+            return {"ok": False, "error": "Pick a draft and write a question"}
+        prompt = (f"Question from the user about draft {item_id} ({it.get('severity', '?')}, "
+                  f"{it.get('path', '')}:{it.get('line', '')}) on {repo} #{number}. Do not post anything.\n\n"
+                  f"> {text.strip()[:2000]}\n\n"
+                  "Answer here in plain words, the way a senior engineer explains to a junior: short sentences, a "
+                  "concrete example, and a one-line meaning for any term. Read the code at the drafts head if you need to. "
+                  f"If the answer changes the draft (severity, wording, or it should be dropped), update the item and its "
+                  f"`explain` in `{rel}` and say what changed.")
+    elif kind == "explain_all":
+        prompt = (f"Add plain-language notes to the drafts of {repo} #{number} in `{rel}`. Do not post anything and do "
+                  "not change any item's `body`.\n\n" + EXPLAIN_TEXT)
+    else:
+        return {"ok": False, "error": "unknown kind"}
+    try:
+        import learner as L
+        L.log_question(repo, number, rel, item_id, kind, text, it)
+    except Exception:  # noqa: BLE001  (logging must never block the question)
+        pass
+    sess = C.session_state(R.find(R.load(), repo, number) or {"repo": repo, "number": number}) or {}
+    return {"ok": True, "prompt": prompt, "tty": sess.get("tty", "")}

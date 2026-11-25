@@ -947,7 +947,7 @@
     var mine = !!state.detail.mine;
     var h = '<div class="d-title"><h2>' + (D.job === "replies" || mine ? "Planned replies" : "Planned review comments") + "</h2>" +
       '<span class="muted small">' + (D.job === "replies" || mine ? "Answers to reviewers on your PR, written by the work session." : "Comments the review session plans to post on GitHub.") +
-      " Approve, reject or edit each one.</span></div>" + draftFlow(D, c);
+      " Approve, reject or edit each one.</span></div>" + draftFlow(D, c) + walkthroughHtml(D);
     if (D.head_moved) h += '<div class="err">⚠ The PR head moved since the drafts were written (' + esc(D.head) + " → " + esc(D.head_now) + "). Line numbers may be out of date.</div>";
     h += '<div class="box"><div class="box-h"><b>' + (D.job === "replies" || mine ? "Summary" : "Verdict and summary") + '</b> · drafts at <span class="mono">' + esc(D.head) + "</span> " +
       chip(c.pending + " pending", c.pending ? "amber" : "") + chip(c.approved + " approved", "green") + chip(c.rejected + " rejected", "red") +
@@ -983,19 +983,93 @@
     return '<div class="box d-card d-' + it.decision + '" data-id="' + esc(it.id) + '"><div class="box-h">' +
       '<b class="mono">' + esc(it.id) + "</b>" + chip(esc(it.severity || "?"), SEV_CLS[it.severity] || "") + chip(esc(it.kind || "?"), "") +
       (it.finding ? chip("finding " + esc(it.finding), "") : "") +
+      (it.step ? chip("found by: " + esc(String(it.step).replace("_", " ")), "") : "") +
       (it.proof ? chip(esc(it.proof), it.proof === "proven" ? "green" : it.proof === "not proven" ? "amber" : "") : "") +
       (it.path ? '<span class="path">' + esc(it.path) + (it.line ? ":" + esc(it.line) : "") + "</span>" : "") +
       (it.edited_body != null ? chip("edited", "blue") : "") +
       '<span style="margin-left:auto"></span>' + chip(esc(it.decision), DEC_CLS[it.decision]) +
       '<button class="btn btn-sm' + (it.decision === "approved" ? " btn-primary" : "") + '" data-dec="approved">Approve</button>' +
       '<button class="btn btn-sm' + (it.decision === "rejected" ? " d-rej" : "") + '" data-dec="rejected">Reject</button>' +
-      '<button class="btn btn-sm" data-edit>Edit</button></div><div class="box-b">' + ctx + th +
+      '<button class="btn btn-sm" data-edit>Edit</button></div><div class="box-b">' + explainHtml(it) + ctx + th +
+      (it.explain ? '<div class="muted small d-lbl">The comment for the author (this is what gets posted)</div>' : "") +
       '<div class="md d-body">' + MD.render(body || "") + "</div>" +
       '<div class="d-edit" hidden><textarea rows="8">' + esc(body || "") + '</textarea><div class="muted small">Preview</div><div class="md d-prev">' + MD.render(body || "") + "</div>" +
       '<div class="actions"><button class="btn btn-sm" data-edit-done>Done</button><button class="btn btn-sm" data-edit-undo>Undo my edit</button></div></div>' +
       reasonRow(it) +
       '<input class="d-note" placeholder="Reason or context (optional; the session and the learner read it)" value="' + esc(it.note || "") + '"></div></div>';
   }
+  // Plain-language notes from the review session (never posted). See drafts.EXPLAIN_TEXT.
+  var EXPLAIN_ROWS = [["does", "What this code does"], ["breaks", "What goes wrong"], ["impact", "Why it matters"],
+    ["why_severity", "Why this severity"], ["confidence", "How sure we are"], ["decide", "Your call"]];
+  function explainHtml(it) {
+    var x = it.explain;
+    var ask = '<button class="btn btn-sm" data-ask="' + esc(it.id) + '">Ask about this</button>';
+    if (!x || typeof x !== "object") {
+      return '<div class="d-explain d-explain-none"><span class="muted small">No plain-language note for this draft.</span>' +
+        '<button class="btn btn-sm" data-ask-explain>Ask the session to explain all drafts</button>' + ask + "</div>";
+    }
+    return '<div class="d-explain"><div class="d-explain-h"><b>In plain words</b>' + ask + "</div><dl>" +
+      EXPLAIN_ROWS.filter(function (r) { return x[r[0]]; }).map(function (r) {
+        return "<dt>" + r[1] + '</dt><dd class="md">' + MD.render(String(x[r[0]])) + "</dd>";
+      }).join("") + "</dl></div>";
+  }
+  function walkthroughHtml(D) {
+    var w = D.walkthrough;
+    if (!w || typeof w !== "object") return "";
+    // Exceptions first: rows that need a look are shown; the rest fold under "show N more".
+    function table(title, rows, isFlag, cols, row) {
+      rows = rows || [];
+      if (!rows.length) return "";
+      var flag = rows.filter(isFlag), rest = rows.filter(function (r) { return !isFlag(r); });
+      var head = "<thead><tr>" + cols.map(function (c) { return "<th>" + c + "</th>"; }).join("") + "</tr></thead>";
+      var h = "<h4>" + title + " " + (flag.length ? chip(flag.length + " to look at", "amber") : chip("nothing flagged", "green")) + "</h4>";
+      if (flag.length) h += '<table class="d-tbl">' + head + "<tbody>" + flag.map(row).join("") + "</tbody></table>";
+      if (rest.length) h += '<details class="d-more"><summary class="small muted">' + (flag.length ? "Show " + rest.length + " more" : "Show all " + rest.length) +
+        '</summary><table class="d-tbl">' + head + "<tbody>" + rest.map(row).join("") + "</tbody></table></details>";
+      return h;
+    }
+    var VCLS = { expected: "green", surprising: "amber", unrelated: "red" };
+    var cell = function (a, b) { return "<td><b>" + esc(a || "") + "</b>" + (b ? '<div class="path small">' + esc(b) + "</div>" : "") + "</td>"; };
+    var td = function (x) { return "<td>" + esc(x || "") + "</td>"; };
+    var risky = (w.risky || []).map(function (r) { return "<li><span class=\"path\">" + esc(r.path || "") + "</span> — " + esc(r.why || "") + "</li>"; }).join("");
+    var gl = (w.glossary || []).map(function (g) { return "<dt>" + esc(g.term || "") + "</dt><dd>" + esc(g.meaning || "") + "</dd>"; }).join("");
+    var ECLS = { small: "green", medium: "amber", large: "red" };
+    return '<details class="box d-walk" open><summary class="box-h"><b>PR walkthrough</b> <span class="muted small">a map before the details (not posted)</span></summary><div class="box-b">' +
+      (w.summary ? '<div class="md">' + MD.render(String(w.summary)) + "</div>" : "") +
+      table("Scope: should this PR touch these files?", w.scope, function (r) { return r.verdict !== "expected"; }, ["", "File", "Why"], function (r) {
+        return "<tr><td>" + chip(esc(r.verdict || "?"), VCLS[r.verdict] || "") + '</td><td class="path">' + esc(r.path || "") + "</td>" + td(r.why) + "</tr>"; }) +
+      (w.flow ? '<h4>How it flows</h4><div class="md">' + MD.render(String(w.flow)) + "</div>" : "") +
+      table("New components: could an existing one be used?", w.new_components, function (r) { return r.reuse !== "no"; }, ["New", "Existing", "Reuse", "Why"], function (c) {
+        return "<tr>" + cell(c.name, c.path) + td(c.similar || "none") + "<td>" + chip(esc(c.reuse || "?"), c.reuse === "no" ? "green" : "amber") + "</td>" + td(c.why) + "</tr>"; }) +
+      table("What triggers the new logic", w.triggers, function (t) { return /dead|nothing|twice|order|none/i.test((t.trigger || "") + " " + (t.how || "")); }, ["Logic", "Trigger", "How it is reached"], function (t) {
+        return "<tr>" + cell(t.what, t.path) + td(t.trigger) + td(t.how) + "</tr>"; }) +
+      table("Tests as the spec", w.tests, function (t) { return t.verdict !== "spec"; }, ["Test", "", "Why"], function (t) {
+        return "<tr>" + cell(t.test) + "<td>" + chip(esc(t.verdict || "?"), t.verdict === "spec" ? "green" : t.verdict === "missing" ? "red" : "amber") + "</td>" + td(t.why) + "</tr>"; }) +
+      table("Rollout and ops", w.rollout, function (r) { return r.status !== "ok"; }, ["Item", "", "Why"], function (r) {
+        return "<tr>" + cell(r.item) + "<td>" + chip(esc(r.status || "?"), r.status === "ok" ? "green" : r.status === "missing" ? "red" : "amber") + "</td>" + td(r.why) + "</tr>"; }) +
+      table("Right-sized? What could be better", w.improvements, function (x) { return x.when === "this PR"; }, ["Change", "Why it helps", "Kind · effort · when"], function (x) {
+        return "<tr>" + cell(x.what, x.where) + td(x.why) + "<td>" + (x.kind ? chip(esc(x.kind), "") + " " : "") + chip(esc(x.effort || "?"), ECLS[x.effort] || "") + " " +
+          chip(esc(x.when || "?"), x.when === "this PR" ? "blue" : "") + "</td></tr>"; }) +
+      table("Industry practice, judged on fit", w.practices, function (x) { return x.verdict === "finding"; }, ["Problem", "Common practice", "This PR", "Verdict"], function (x) {
+        return "<tr>" + cell(x.problem) + td(x.practice) + "<td>" + chip(esc(x.pr || "?"), x.pr === "follows" ? "green" : "amber") + '<div class="small">' + esc(x.reason || "") + "</div></td><td>" +
+          chip(esc(x.verdict || "?"), { "fine": "green", "finding": "red", "practice does not fit here": "blue" }[x.verdict] || "") + "</td></tr>"; }) +
+      (risky ? "<h4>Where the risk is</h4><ul>" + risky + "</ul>" : "") +
+      (gl ? '<h4>Words used here</h4><dl class="d-gloss">' + gl + "</dl>" : "") + "</div></details>";
+  }
+  // Questions go to the review session (copied, then its tab comes to the front). They are also logged for the learner.
+  function askSession(text, kind, id) {
+    var s = state.detail.summary;
+    api("/api/drafts/ask", { repo: s.repo, number: s.number, kind: kind, id: id || "", text: text }).then(function (r) {
+      if (!r.ok) return info("Not sent", '<div class="err">' + esc(r.error || "failed") + "</div>");
+      var go = function () { api("/api/action/focus", { repo: s.repo, number: s.number }); };
+      var shown = '<p class="small">Paste this in the review session' + (r.tty ? " (<b>" + esc(r.tty) + "</b>)" : "") + ". It was copied.</p>" +
+        '<pre class="mono small" id="copy-src" style="white-space:pre-wrap">' + esc(r.prompt) + "</pre>" +
+        '<div class="actions"><button class="btn btn-sm" data-copy-text>Copy again</button> <span id="copied" class="muted small"></span></div>';
+      if (navigator.clipboard) navigator.clipboard.writeText(r.prompt).then(function () { go(); info("Question copied", shown); }, function () { info("Copy the question", shown); });
+      else info("Copy the question", shown);
+    });
+  }
+
   // One-click reasons for a decision. They help the learner (see learner.py); all optional.
   function reasonRow(it) {
     var R = (state.drafts.reasons || {})[it.decision];
@@ -1024,7 +1098,7 @@
   }
   function itemOf(el) { var id = el.closest(".d-card").dataset.id; return state.drafts.items.filter(function (x) { return x.id === id; })[0]; }
   document.addEventListener("click", function (ev) {
-    var t = ev.target.closest("[data-dec],[data-reason],[data-edit],[data-edit-done],[data-edit-undo],[data-bulk],[data-send-drafts],[data-copy-text]");
+    var t = ev.target.closest("[data-dec],[data-reason],[data-ask],[data-ask-explain],[data-edit],[data-edit-done],[data-edit-undo],[data-bulk],[data-send-drafts],[data-copy-text]");
     if (!t) return;
     ev.preventDefault();
     if (t.dataset.copyText) {
@@ -1034,6 +1108,16 @@
     }
     if (!state.drafts) return;
     if (t.hasAttribute("data-send-drafts")) return sendDrafts(false);
+    if (t.hasAttribute("data-ask-explain")) return askSession("", "explain_all");
+    if (t.dataset.ask) {
+      var qid = t.dataset.ask;
+      dialog("Ask about " + qid, '<p class="small">Ask the review session anything about this draft. It answers in plain words, in its tab.</p>' +
+        '<textarea id="ask-q" rows="4" style="width:100%" placeholder="For example: why can the lock not stop this? What would a user see?"></textarea>', "Copy and go to the session", function () {
+        var q = ($("#ask-q") || {}).value || "";
+        if (q.trim()) askSession(q.trim(), "question", qid);
+      });
+      return;
+    }
     if (t.dataset.bulk) {
       var f = state.dFilter, b = t.dataset.bulk;
       state.drafts.items.forEach(function (it) {

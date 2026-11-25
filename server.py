@@ -192,6 +192,9 @@ class H(BaseHTTPRequestHandler):
                                                  a_opts, sid=a_sid, dry_run=dry, copied=bool(body.get("copied"))))
             if u == "/api/drafts/save":
                 return self._send(200, D.save(repo, number, body))
+            if u == "/api/drafts/ask":
+                return self._send(200, D.ask(repo, number, str(body.get("kind") or ""), str(body.get("id") or ""),
+                                             str(body.get("text") or "")))
             if u == "/api/action/drafts_copied":
                 return self._send(200, A.drafts_copied(repo, number, dry_run=dry))
             if u == "/api/action/send_drafts":
